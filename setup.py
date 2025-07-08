@@ -5,6 +5,7 @@ setup(
     version='0.1.2',
     description='WireGuard automation client with async support using Selenium and aiohttp',
     author='Zurlex',
+    url="https://github.com/Zurlex/Wg_web_client",
     packages=find_packages(),
     install_requires=[
         'selenium>=4.0.0',
