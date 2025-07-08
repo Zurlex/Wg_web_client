@@ -74,7 +74,7 @@ class WireGuardWebClient:
 
             self.driver.get(full_download_url)
 
-            result = await self._get_latest_downloaded_conf()
+            result = await self._get_latest_downloaded_conf(key_name)
             logger.info(f"Key created successfully: {key_name}, config at {result}")
             return result
         except Exception as e:
@@ -118,14 +118,13 @@ class WireGuardWebClient:
             )
             confirm_button.click()
 
-            for file in os.listdir(self.download_dir):
-                if key_name in file and file.endswith(".conf"):
-                    file_path = os.path.join(self.download_dir, file)
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"Deleted config file: {file_path}")
-                    except Exception as e:
-                        logger.error(f"Error deleting config file {file_path}: {str(e)}")
+            file_path = os.path.join(self.download_dir, f"{key_name}.conf")
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Deleted config file: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting config file {file_path}: {str(e)}")
             logger.info(f"Key deleted successfully: {key_name}")
         except Exception as e:
             logger.error(f"Error deleting key '{key_name}': {str(e)}")
@@ -158,15 +157,15 @@ class WireGuardWebClient:
             logger.error(f"Error getting status for key '{key_name}': {str(e)}")
             raise
 
-    async def _get_latest_downloaded_conf(self) -> str:
+    async def _get_latest_downloaded_conf(self, key_name: str) -> str:
         try:
+            target_path = os.path.join(self.download_dir, f"{key_name}.conf")
             for _ in range(30):
                 files = [f for f in os.listdir(self.download_dir) if f.endswith(".conf")]
                 if files:
-                    files.sort(key=lambda x: os.path.getctime(os.path.join(self.download_dir, x)), reverse=True)
-                    config_path = os.path.join(self.download_dir, files[0])
-                    logger.info(f"Found latest config file: {config_path}")
-                    return config_path
+                    source_path = os.path.join(self.download_dir, files[0])
+                    os.rename(source_path, target_path)
+                    return target_path
                 await asyncio.sleep(1)
             logger.error("No configuration file found after download attempt")
             raise WGAutomationError("Файл конфигурации не найден после скачивания")
