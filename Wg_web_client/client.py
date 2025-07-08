@@ -8,15 +8,16 @@ from selenium.webdriver.support import expected_conditions as EC
 from Wg_web_client.exceptions import WGAutomationError
 
 class WireGuardWebClient:
-    def __init__(self, ip: str, download_dir: str):
+    def __init__(self, ip: str, download_dir: str, chromedriver_path: str = None):
         self.ip = ip
         self.download_dir = os.path.abspath(download_dir)
+        self.chromedriver_path = chromedriver_path
         os.makedirs(self.download_dir, exist_ok=True)
 
     async def _setup(self):
         from .driver_factory import create_driver
         loop = asyncio.get_running_loop()
-        self.driver = await loop.run_in_executor(None, create_driver, self.download_dir)
+        self.driver = await loop.run_in_executor(None, create_driver, self.download_dir, self.chromedriver_path)
         self.wait = WebDriverWait(self.driver, 3)
 
     async def create_key(self, key_name: str) -> str:

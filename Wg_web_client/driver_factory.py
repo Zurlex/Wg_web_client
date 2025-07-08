@@ -4,8 +4,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
-
-def create_driver(download_dir: str) -> webdriver.Chrome:
+def create_driver(download_dir: str, chromedriver_path: str = None) -> webdriver.Chrome:
     chrome_options = Options()
 
     # Настройки загрузки
@@ -20,17 +19,11 @@ def create_driver(download_dir: str) -> webdriver.Chrome:
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-
-    # Поддержка headless
     chrome_options.add_argument("--headless=new")
 
-    # Можно добавить кастомный путь до chromedriver при необходимости
-    chromedriver_path = None
-
     if chromedriver_path and os.path.exists(chromedriver_path):
-        service = Service(chromedriver_path)
+        service = Service(executable_path=chromedriver_path)
     else:
         service = Service(ChromeDriverManager().install())
 
