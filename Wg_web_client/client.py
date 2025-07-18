@@ -35,7 +35,6 @@ class WireGuardWebClient:
             raise
 
     async def create_key(self, key_name: str) -> str:
-        # Проверка существующего файла до запуска браузера
         existing_conf_path = os.path.join(self.download_dir, f"{key_name}.conf")
         if os.path.exists(existing_conf_path):
             logger.info(f"⚠️ Ключ '{key_name}' уже существует, пропуск создания.")
@@ -44,14 +43,22 @@ class WireGuardWebClient:
         await self._setup()
         try:
             logger.info(f"Создание ключа: {key_name}")
-            self.driver.get(f"https://{self.ip}")
+            self.driver.get(f"http://{self.ip}")
 
+            # Нажимаем кнопку "New"
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(),'New')]]"))).click()
-            self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']"))).send_keys(key_name)
+            await asyncio.sleep(0.5)
+
+            # Вводим имя ключа
+            name_input = self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']")))
+            name_input.send_keys(key_name)
+            await asyncio.sleep(0.3)
+
+            # Нажимаем "Create"
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Create')]"))).click()
+            await asyncio.sleep(2)  # Даём время интерфейсу создать ключ
 
-            await asyncio.sleep(1.5)
-
+            # Получаем список блоков клиентов
             client_blocks = self.wait.until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'relative overflow-hidden')]"))
             )
@@ -62,24 +69,27 @@ class WireGuardWebClient:
                     block.find_element(By.XPATH, f".//span[normalize-space(text())='{key_name}']")
                     target_block = block
                     break
-                except Exception as e:
-                    logger.debug(f"Блок не содержит ключ '{key_name}': {e}")
+                except NoSuchElementException:
                     continue
 
             if not target_block:
-                logger.error(f"Не найден блок с ключом: {key_name}")
+                logger.error(f"❌ Не найден блок с ключом: {key_name}")
                 raise WGAutomationError(f"Не найден блок с именем ключа '{key_name}'")
+
+            await asyncio.sleep(1.5)  # Ждём появления ссылки на скачивание
 
             download_link = target_block.find_element(
                 By.XPATH, ".//a[contains(@href, '/api/wireguard/client/') and contains(@href, '/configuration')]"
             )
             download_url = download_link.get_attribute("href")
-            full_download_url = f"https://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
+            full_download_url = f"http://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith(
+                "http") else download_url
 
             self.driver.get(full_download_url)
+            await asyncio.sleep(1.5)  # Ждём начала скачивания
 
             result = await self._get_latest_downloaded_conf(key_name)
-            logger.info(f"Ключ '{key_name}' успешно создан. Файл: {result}")
+            logger.info(f"✅ Ключ '{key_name}' успешно создан. Файл: {result}")
             return result
         except Exception as e:
             logger.error(f"Ошибка при создании ключа '{key_name}': {str(e)}")
