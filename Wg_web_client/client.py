@@ -8,6 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from Wg_web_client.exceptions import WGAutomationError
 from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
 
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
