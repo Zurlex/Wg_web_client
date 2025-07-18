@@ -6,14 +6,15 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from Wg_web_client.exceptions import WGAutomationError
+from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
 
 class WireGuardWebClient:
     def __init__(self, ip: str, download_dir: str, chromedriver_path: str = None):
@@ -33,20 +34,19 @@ class WireGuardWebClient:
             raise
 
     async def create_key(self, key_name: str) -> str:
+        existing_conf_path = os.path.join(self.download_dir, f"{key_name}.conf")
+        if os.path.exists(existing_conf_path):
+            logger.info(f"⚠️ Ключ '{key_name}' уже существует.")
+            return existing_conf_path
+
         await self._setup()
         try:
-            logger.info(f"Creating key: {key_name}")
-            self.driver.get(f"http://{self.ip}")
+            logger.info(f"Создание ключа: {key_name}")
+            self.driver.get(f"https://{self.ip}")
 
-            new_button = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(),'New')]]")))
-            new_button.click()
-
-            input_field = self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']")))
-            input_field.send_keys(key_name)
-
-            create_button = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Create')]")))
-            create_button.click()
-
+            self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(),'New')]]"))).click()
+            self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']"))).send_keys(key_name)
+            self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Create')]"))).click()
             await asyncio.sleep(1.5)
 
             client_blocks = self.wait.until(
@@ -59,41 +59,63 @@ class WireGuardWebClient:
                     block.find_element(By.XPATH, f".//span[normalize-space(text())='{key_name}']")
                     target_block = block
                     break
-                except:
+                except Exception as e:
+                    logger.debug(f"Блок не содержит ключ '{key_name}': {e}")
                     continue
 
             if not target_block:
-                logger.error(f"Key block not found for key_name: {key_name}")
+                logger.error(f"Не найден блок с ключом: {key_name}")
                 raise WGAutomationError(f"Не найден блок с именем ключа '{key_name}'")
 
             download_link = target_block.find_element(
                 By.XPATH, ".//a[contains(@href, '/api/wireguard/client/') and contains(@href, '/configuration')]"
             )
             download_url = download_link.get_attribute("href")
-            full_download_url = f"http://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
+            full_download_url = f"https://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
 
             self.driver.get(full_download_url)
 
             result = await self._get_latest_downloaded_conf(key_name)
-            logger.info(f"Key created successfully: {key_name}, config at {result}")
+            logger.info(f"Ключ '{key_name}' успешно создан. Файл: {result}")
             return result
         except Exception as e:
-            logger.error(f"Error creating key '{key_name}': {str(e)}")
+            logger.error(f"Ошибка при создании ключа '{key_name}': {str(e)}")
             raise
         finally:
             try:
                 self.driver.quit()
             except Exception as e:
-                logger.error(f"Error quitting driver in create_key: {str(e)}")
+                logger.error(f"Ошибка закрытия драйвера: {str(e)}")
+
+    async def _get_latest_downloaded_conf(self, key_name: str) -> str:
+        try:
+            target_path = os.path.join(self.download_dir, f"{key_name}.conf")
+            for _ in range(30):
+                candidates = [f for f in os.listdir(self.download_dir) if f.endswith(".conf") or f.endswith(".tmp")]
+                if candidates:
+                    candidates.sort(key=lambda x: os.path.getmtime(os.path.join(self.download_dir, x)), reverse=True)
+                    source_path = os.path.join(self.download_dir, candidates[0])
+                    if candidates[0].endswith(".tmp"):
+                        logger.warning(f"Файл скачался как .tmp: {candidates[0]}")
+                    os.rename(source_path, target_path)
+                    return target_path
+                await asyncio.sleep(1)
+            logger.error("Файл конфигурации не найден после 30 попыток")
+            raise WGAutomationError("Файл конфигурации не найден после скачивания")
+        except Exception as e:
+            logger.error(f"Ошибка в _get_latest_downloaded_conf: {str(e)}")
+            raise
 
     async def delete_key(self, key_name: str) -> None:
         await self._setup()
         try:
-            logger.info(f"Deleting key: {key_name}")
-            self.driver.get(f"http://{self.ip}")
+            logger.info(f"Удаление ключа: {key_name}")
+            self.driver.get(f"https://{self.ip}")
 
             client_blocks = self.wait.until(
-                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class,'relative overflow-hidden')]"))
+                EC.presence_of_all_elements_located(
+                    (By.XPATH, "//div[contains(@class,'relative overflow-hidden')]")
+                )
             )
 
             target_block = None
@@ -102,82 +124,74 @@ class WireGuardWebClient:
                     block.find_element(By.XPATH, f".//span[normalize-space(text())='{key_name}']")
                     target_block = block
                     break
-                except:
+                except NoSuchElementException:
                     continue
 
             if not target_block:
-                logger.error(f"Key not found for deletion: {key_name}")
+                logger.error(f"Ключ не найден для удаления: {key_name}")
                 raise WGAutomationError(f"Не найден ключ для удаления: '{key_name}'")
 
-            delete_button = target_block.find_element(By.XPATH, ".//button[@title='Delete Client']")
-            delete_button.click()
-            await asyncio.sleep(1)
+            try:
+                delete_button = target_block.find_element(By.XPATH, ".//button[@title='Delete Client']")
+                delete_button.click()
+                await asyncio.sleep(1)
 
-            confirm_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Delete Client') and contains(@class,'bg-red-600')]"))
-            )
-            confirm_button.click()
+                confirm_button = self.wait.until(
+                    EC.element_to_be_clickable((
+                        By.XPATH, "//button[contains(text(),'Delete Client') and contains(@class,'bg-red-600')]"
+                    ))
+                )
+                confirm_button.click()
+            except (NoSuchElementException, ElementClickInterceptedException) as e:
+                logger.warning(f"Не удалось нажать кнопку удаления: {e}")
+                raise WGAutomationError("Удаление не удалось из-за проблем с элементами интерфейса.")
 
             file_path = os.path.join(self.download_dir, f"{key_name}.conf")
             if os.path.exists(file_path):
                 try:
                     os.remove(file_path)
-                    logger.info(f"Deleted config file: {file_path}")
-                except Exception as e:
-                    logger.error(f"Error deleting config file {file_path}: {str(e)}")
-            logger.info(f"Key deleted successfully: {key_name}")
-        except Exception as e:
-            logger.error(f"Error deleting key '{key_name}': {str(e)}")
+                    logger.info(f"Файл конфигурации удалён: {file_path}")
+                except OSError as e:
+                    logger.error(f"Ошибка удаления файла {file_path}: {str(e)}")
+
+            logger.info(f"Ключ успешно удалён: {key_name}")
+
+        except (WGAutomationError, RuntimeError, OSError) as e:
+            logger.error(f"Ошибка удаления ключа '{key_name}': {str(e)}")
             raise
         finally:
             try:
                 self.driver.quit()
             except Exception as e:
-                logger.error(f"Error quitting driver in delete_key: {str(e)}")
+                logger.error(f"Ошибка закрытия драйвера: {str(e)}")
 
     async def get_key_status(self, key_name: str) -> bool:
-        url = f"http://{self.ip}/api/wireguard/client"
+        url = f"https://{self.ip}/api/wireguard/client"
         try:
-            logger.info(f"Checking status for key: {key_name}")
+            logger.info(f"Проверка статуса ключа: {key_name}")
             async with ClientSession() as session:
                 async with session.get(url) as resp:
                     if resp.status != 200:
-                        logger.error(f"API request failed for {url}: Status {resp.status}")
+                        logger.error(f"Ошибка запроса API {url}: Статус {resp.status}")
                         raise Exception(f"Ошибка запроса: {resp.status}")
                     data = await resp.json()
 
             for client in data:
                 if client["name"] == key_name:
-                    logger.info(f"Key status for '{key_name}': {'enabled' if client['enabled'] else 'disabled'}")
+                    logger.info(f"Статус ключа '{key_name}': {'включен' if client['enabled'] else 'выключен'}")
                     return client["enabled"]
 
-            logger.error(f"Client '{key_name}' not found on server")
+            logger.error(f"Клиент '{key_name}' не найден на сервере")
             raise Exception(f"Клиент '{key_name}' не найден на сервере.")
         except Exception as e:
-            logger.error(f"Error getting status for key '{key_name}': {str(e)}")
-            raise
-
-    async def _get_latest_downloaded_conf(self, key_name: str) -> str:
-        try:
-            target_path = os.path.join(self.download_dir, f"{key_name}.conf")
-            for _ in range(30):
-                files = [f for f in os.listdir(self.download_dir) if f.endswith(".conf")]
-                if files:
-                    source_path = os.path.join(self.download_dir, files[0])
-                    os.rename(source_path, target_path)
-                    return target_path
-                await asyncio.sleep(1)
-            logger.error("No configuration file found after download attempt")
-            raise WGAutomationError("Файл конфигурации не найден после скачивания")
-        except Exception as e:
-            logger.error(f"Error in _get_latest_downloaded_conf: {str(e)}")
+            logger.error(f"Ошибка получения статуса для ключа '{key_name}': {str(e)}")
             raise
 
     async def enable_key(self, key_name: str) -> None:
         await self._setup()
         try:
-            logger.info(f"Enabling key: {key_name}")
-            self.driver.get(f"http://{self.ip}")
+            logger.info(f"Включение ключа: {key_name}")
+            self.driver.get(f"https://{self.ip}")
             await asyncio.sleep(1)
 
             blocks = self.driver.find_elements(By.XPATH, "//div[contains(@class,'border-b')]")
@@ -187,28 +201,27 @@ class WireGuardWebClient:
                     try:
                         toggle = block.find_element(By.XPATH, ".//div[@title='Enable Client']")
                         toggle.click()
-                        logger.info(f"✅ Key '{key_name}' enabled")
-                    except:
-                        logger.warning(f"⚠️ Key '{key_name}' already enabled")
+                        logger.info(f"✅ Ключ '{key_name}' включён")
+                    except (NoSuchElementException, ElementClickInterceptedException):
+                        logger.warning(f"⚠️ Ключ '{key_name}' уже включён или не кликабелен")
                     return
-                except:
+                except NoSuchElementException:
                     continue
-            logger.error(f"Key '{key_name}' not found")
-            print(f"❌ Ключ '{key_name}' не найден")
-        except Exception as e:
-            logger.error(f"Error enabling key '{key_name}': {str(e)}")
+            logger.error(f"Ключ '{key_name}' не найден для включения")
+        except (OSError, RuntimeError) as e:
+            logger.error(f"Ошибка включения ключа '{key_name}': {str(e)}")
             raise
         finally:
             try:
                 self.driver.quit()
             except Exception as e:
-                logger.error(f"Error quitting driver in enable_key: {str(e)}")
+                logger.error(f"Ошибка закрытия драйвера: {str(e)}")
 
     async def disable_key(self, key_name: str) -> None:
         await self._setup()
         try:
-            logger.info(f"Disabling key: {key_name}")
-            self.driver.get(f"http://{self.ip}")
+            logger.info(f"Отключение ключа: {key_name}")
+            self.driver.get(f"https://{self.ip}")
             await asyncio.sleep(1)
 
             blocks = self.driver.find_elements(By.XPATH, "//div[contains(@class,'border-b')]")
@@ -218,19 +231,18 @@ class WireGuardWebClient:
                     try:
                         toggle = block.find_element(By.XPATH, ".//div[@title='Disable Client']")
                         toggle.click()
-                        logger.info(f"⛔ Key '{key_name}' disabled")
-                    except:
-                        logger.warning(f"⚠️ Key '{key_name}' already disabled")
+                        logger.info(f"⛔ Ключ '{key_name}' отключён")
+                    except (NoSuchElementException, ElementClickInterceptedException):
+                        logger.warning(f"⚠️ Ключ '{key_name}' уже отключён или не кликабелен")
                     return
-                except:
+                except NoSuchElementException:
                     continue
-            logger.error(f"Key '{key_name}' not found")
-            print(f"❌ Ключ '{key_name}' не найден")
-        except Exception as e:
-            logger.error(f"Error disabling key '{key_name}': {str(e)}")
+            logger.error(f"Ключ '{key_name}' не найден для отключения")
+        except (OSError, RuntimeError) as e:
+            logger.error(f"Ошибка отключения ключа '{key_name}': {str(e)}")
             raise
         finally:
             try:
                 self.driver.quit()
             except Exception as e:
-                logger.error(f"Error quitting driver in disable_key: {str(e)}")
+                logger.error(f"Ошибка закрытия драйвера: {str(e)}")
