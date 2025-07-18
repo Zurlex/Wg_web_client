@@ -42,7 +42,7 @@ class WireGuardWebClient:
         await self._setup()
         try:
             logger.info(f"Создание ключа: {key_name}")
-            self.driver.get(f"https://{self.ip}")
+            self.driver.get(f"http://{self.ip}")
 
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(),'New')]]"))).click()
             self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']"))).send_keys(key_name)
@@ -71,7 +71,7 @@ class WireGuardWebClient:
                 By.XPATH, ".//a[contains(@href, '/api/wireguard/client/') and contains(@href, '/configuration')]"
             )
             download_url = download_link.get_attribute("href")
-            full_download_url = f"https://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
+            full_download_url = f"http://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
 
             self.driver.get(full_download_url)
 
@@ -110,7 +110,7 @@ class WireGuardWebClient:
         await self._setup()
         try:
             logger.info(f"Удаление ключа: {key_name}")
-            self.driver.get(f"https://{self.ip}")
+            self.driver.get(f"http://{self.ip}")
 
             client_blocks = self.wait.until(
                 EC.presence_of_all_elements_located(
@@ -166,7 +166,7 @@ class WireGuardWebClient:
                 logger.error(f"Ошибка закрытия драйвера: {str(e)}")
 
     async def get_key_status(self, key_name: str) -> bool:
-        url = f"https://{self.ip}/api/wireguard/client"
+        url = f"http://{self.ip}/api/wireguard/client"
         try:
             logger.info(f"Проверка статуса ключа: {key_name}")
             async with ClientSession() as session:
@@ -191,7 +191,7 @@ class WireGuardWebClient:
         await self._setup()
         try:
             logger.info(f"Включение ключа: {key_name}")
-            self.driver.get(f"https://{self.ip}")
+            self.driver.get(f"http://{self.ip}")
             await asyncio.sleep(1)
 
             blocks = self.driver.find_elements(By.XPATH, "//div[contains(@class,'border-b')]")
@@ -221,7 +221,7 @@ class WireGuardWebClient:
         await self._setup()
         try:
             logger.info(f"Отключение ключа: {key_name}")
-            self.driver.get(f"https://{self.ip}")
+            self.driver.get(f"http://{self.ip}")
             await asyncio.sleep(1)
 
             blocks = self.driver.find_elements(By.XPATH, "//div[contains(@class,'border-b')]")
