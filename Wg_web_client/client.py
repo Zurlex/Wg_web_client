@@ -34,19 +34,21 @@ class WireGuardWebClient:
             raise
 
     async def create_key(self, key_name: str) -> str:
+        # Проверка существующего файла до запуска браузера
         existing_conf_path = os.path.join(self.download_dir, f"{key_name}.conf")
         if os.path.exists(existing_conf_path):
-            logger.info(f"⚠️ Ключ '{key_name}' уже существует.")
+            logger.info(f"⚠️ Ключ '{key_name}' уже существует, пропуск создания.")
             return existing_conf_path
 
         await self._setup()
         try:
             logger.info(f"Создание ключа: {key_name}")
-            self.driver.get(f"http://{self.ip}")
+            self.driver.get(f"https://{self.ip}")
 
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(),'New')]]"))).click()
             self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']"))).send_keys(key_name)
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Create')]"))).click()
+
             await asyncio.sleep(1.5)
 
             client_blocks = self.wait.until(
@@ -71,7 +73,7 @@ class WireGuardWebClient:
                 By.XPATH, ".//a[contains(@href, '/api/wireguard/client/') and contains(@href, '/configuration')]"
             )
             download_url = download_link.get_attribute("href")
-            full_download_url = f"http://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
+            full_download_url = f"https://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith("http") else download_url
 
             self.driver.get(full_download_url)
 
