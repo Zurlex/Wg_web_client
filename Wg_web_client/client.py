@@ -47,16 +47,16 @@ class WireGuardWebClient:
 
             # Нажимаем кнопку "New"
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[.//span[contains(text(),'New')]]"))).click()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
 
             # Вводим имя ключа
             name_input = self.wait.until(EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Name']")))
             name_input.send_keys(key_name)
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(1)
 
             # Нажимаем "Create"
             self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Create')]"))).click()
-            await asyncio.sleep(2)  # Даём время интерфейсу создать ключ
+            await asyncio.sleep(3)  # Даём время интерфейсу создать ключ
 
             # Получаем список блоков клиентов
             client_blocks = self.wait.until(
@@ -76,7 +76,7 @@ class WireGuardWebClient:
                 logger.error(f"❌ Не найден блок с ключом: {key_name}")
                 raise WGAutomationError(f"Не найден блок с именем ключа '{key_name}'")
 
-            await asyncio.sleep(1.5)  # Ждём появления ссылки на скачивание
+            await asyncio.sleep(2)  # Ждём появления ссылки на скачивание
 
             download_link = target_block.find_element(
                 By.XPATH, ".//a[contains(@href, '/api/wireguard/client/') and contains(@href, '/configuration')]"
@@ -86,7 +86,7 @@ class WireGuardWebClient:
                 "http") else download_url
 
             self.driver.get(full_download_url)
-            await asyncio.sleep(1.5)  # Ждём начала скачивания
+            await asyncio.sleep(2)  # Ждём начала скачивания
 
             result = await self._get_latest_downloaded_conf(key_name)
             logger.info(f"✅ Ключ '{key_name}' успешно создан. Файл: {result}")
