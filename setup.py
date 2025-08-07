@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='Wg_web_client',
-    version='0.1.9',
+    version='0.1.10',
     description='WireGuard automation client with async support using Selenium and aiohttp',
     author='Zurlex',
     packages=find_packages(),

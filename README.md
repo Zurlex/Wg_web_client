@@ -7,7 +7,7 @@ WireGuard Web Client — это Python-библиотека для управл�
 - ❌ Удаление ключа
 - 📶 Проверка статуса ключа
 - 🔁 Управление статусом (Enable / Disable)
-- 💾 Задание пути для скачивания / драйвера (по умолчанию Windows)
+- 💾 Получение ссылки для скачивания
 
 ## Пример использования:
 
@@ -17,9 +17,10 @@ from Wg_web_client.client import WireGuardWebClient
 
 
 async def main():
-    client = WireGuardWebClient("45.8.98.193:51821", "./downloads", "/path/to/chromedriver")
+    client = WireGuardWebClient("45.8.98.193:51821", "/path/to/chromedriver")
 
-    await client.create_key("ZurlexVPN")
+    link = await client.create_key("ZurlexVPN")
+    print(link)
     await client.delete_key("ZurlexVPN")
 
     status = await client.get_key_status("ZurlexVPN")

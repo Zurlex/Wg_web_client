@@ -1,4 +1,3 @@
-import os
 import asyncio
 import logging
 from aiohttp import ClientSession
@@ -18,28 +17,21 @@ logger = logging.getLogger(__name__)
 
 
 class WireGuardWebClient:
-    def __init__(self, ip: str, download_dir: str, chromedriver_path: str = None):
+    def __init__(self, ip: str, chromedriver_path: str = None):
         self.ip = ip
-        self.download_dir = os.path.abspath(download_dir)
         self.chromedriver_path = chromedriver_path
-        os.makedirs(self.download_dir, exist_ok=True)
 
     async def _setup(self):
         try:
             from .driver_factory import create_driver
             loop = asyncio.get_running_loop()
-            self.driver = await loop.run_in_executor(None, create_driver, self.download_dir, self.chromedriver_path)
+            self.driver = await loop.run_in_executor(None, create_driver, self.chromedriver_path)
             self.wait = WebDriverWait(self.driver, 3)
         except Exception as e:
             logger.error(f"Error in _setup: {str(e)}")
             raise
 
     async def create_key(self, key_name: str) -> str:
-        existing_conf_path = os.path.join(self.download_dir, f"{key_name}.conf")
-        if os.path.exists(existing_conf_path):
-            logger.info(f"⚠️ Ключ '{key_name}' уже существует, пропуск создания.")
-            return existing_conf_path
-
         await self._setup()
         try:
             logger.info(f"Создание ключа: {key_name}")
@@ -85,12 +77,8 @@ class WireGuardWebClient:
             full_download_url = f"http://{self.ip}{download_url.lstrip('.')}" if not download_url.startswith(
                 "http") else download_url
 
-            self.driver.get(full_download_url)
-            await asyncio.sleep(2)  # Ждём начала скачивания
-
-            result = await self._get_latest_downloaded_conf(key_name)
-            logger.info(f"✅ Ключ '{key_name}' успешно создан. Файл: {result}")
-            return result
+            logger.info(f"✅ Ключ '{key_name}' успешно создан. Ссылка: {full_download_url}")
+            return full_download_url
         except Exception as e:
             logger.error(f"Ошибка при создании ключа '{key_name}': {str(e)}")
             raise
@@ -99,25 +87,6 @@ class WireGuardWebClient:
                 self.driver.quit()
             except Exception as e:
                 logger.error(f"Ошибка закрытия драйвера: {str(e)}")
-
-    async def _get_latest_downloaded_conf(self, key_name: str) -> str:
-        try:
-            target_path = os.path.join(self.download_dir, f"{key_name}.conf")
-            for _ in range(30):
-                candidates = [f for f in os.listdir(self.download_dir) if f.endswith(".conf") or f.endswith(".tmp")]
-                if candidates:
-                    candidates.sort(key=lambda x: os.path.getmtime(os.path.join(self.download_dir, x)), reverse=True)
-                    source_path = os.path.join(self.download_dir, candidates[0])
-                    if candidates[0].endswith(".tmp"):
-                        logger.warning(f"Файл скачался как .tmp: {candidates[0]}")
-                    os.rename(source_path, target_path)
-                    return target_path
-                await asyncio.sleep(1)
-            logger.error("Файл конфигурации не найден после 30 попыток")
-            raise WGAutomationError("Файл конфигурации не найден после скачивания")
-        except Exception as e:
-            logger.error(f"Ошибка в _get_latest_downloaded_conf: {str(e)}")
-            raise
 
     async def delete_key(self, key_name: str) -> None:
         await self._setup()
@@ -159,17 +128,9 @@ class WireGuardWebClient:
                 logger.warning(f"Не удалось нажать кнопку удаления: {e}")
                 raise WGAutomationError("Удаление не удалось из-за проблем с элементами интерфейса.")
 
-            file_path = os.path.join(self.download_dir, f"{key_name}.conf")
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                    logger.info(f"Файл конфигурации удалён: {file_path}")
-                except OSError as e:
-                    logger.error(f"Ошибка удаления файла {file_path}: {str(e)}")
-
             logger.info(f"Ключ успешно удалён: {key_name}")
 
-        except (WGAutomationError, RuntimeError, OSError) as e:
+        except (WGAutomationError, RuntimeError) as e:
             logger.error(f"Ошибка удаления ключа '{key_name}': {str(e)}")
             raise
         finally:
