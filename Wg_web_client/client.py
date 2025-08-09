@@ -1,12 +1,13 @@
 import asyncio
 import logging
+import re
+
 from aiohttp import ClientSession
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from Wg_web_client.exceptions import WGAutomationError
 from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -160,6 +161,77 @@ class WireGuardWebClient:
         except Exception as e:
             logger.error(f"Ошибка получения статуса для ключа '{key_name}': {str(e)}")
             raise
+
+    import re
+    from selenium.common.exceptions import NoSuchElementException
+
+    async def check_activity_key(self, key_name: str) -> bool:
+        """
+        True, если у клиента есть не нулевой суммарный трафик (по правой колонке).
+        """
+        await self._setup()
+        try:
+            logger.info(f"Проверка активности ключа: {key_name}")
+            self.driver.get(f"http://{self.ip}")
+            await asyncio.sleep(1)
+
+            client_blocks = self.wait.until(
+                EC.presence_of_all_elements_located(
+                    (By.XPATH, "//div[contains(@class,'relative overflow-hidden')]")
+                )
+            )
+
+            for block in client_blocks:
+                try:
+                    # Находим нужную карточку по имени
+                    block.find_element(By.XPATH, f".//span[normalize-space(text())='{key_name}']")
+
+                    # 1) Надёжный способ: по title "Общий объём ..."
+                    stats_titles = block.find_elements(
+                        By.XPATH,
+                        ".//div[contains(@class,'justify-end')]//span[starts-with(@title,'Общий объём')]"
+                    )
+
+                    for st in stats_titles:
+                        title_txt = (st.get_attribute("title") or "").lower()
+                        # Ищем число с единицами (Б, КБ/МБ/ГБ и т.д.)
+                        m = re.search(r'([\d\.,]+)\s*(б|кб|мб|гб|kb|mb|gb)', title_txt, re.IGNORECASE)
+                        if m:
+                            val = float(m.group(1).replace(',', '.'))
+                            if val > 0:
+                                logger.info(
+                                    f"Ключ '{key_name}' имеет суммарный трафик {m.group(1)} {m.group(2)} — активен")
+                                return True
+
+                    # 2) Фолбэк: нижняя строка с суммой в правых мини-блоках
+                    totals = block.find_elements(
+                        By.XPATH,
+                        ".//div[contains(@class,'justify-end')]//div[contains(@class,'min-w-20') or contains(@class,'md:min-w-24')]"
+                        "//span[contains(@class,'font-regular')]"
+                    )
+                    for el in totals:
+                        t = el.text.strip()
+                        if any(u in t for u in ('КБ', 'МБ', 'ГБ', 'KB', 'MB', 'GB')) and not t.startswith('0'):
+                            logger.info(f"Ключ '{key_name}' имеет суммарный трафик {t} — активен")
+                            return True
+
+                    logger.info(f"Ключ '{key_name}' без суммарного трафика — не активен")
+                    return False
+
+                except NoSuchElementException:
+                    continue
+
+            logger.warning(f"Ключ '{key_name}' не найден на странице")
+            return False
+
+        except Exception as e:
+            logger.error(f"Ошибка при проверке активности ключа '{key_name}': {e}")
+            return False
+        finally:
+            try:
+                self.driver.quit()
+            except Exception as e:
+                logger.error(f"Ошибка закрытия драйвера: {e}")
 
     async def enable_key(self, key_name: str) -> None:
         await self._setup()
